@@ -1,5 +1,5 @@
 from django.contrib import admin
-from app_ggw.models import User, City, Trip
+from ggw.models import User, City, Trip
 
 class CitiesInLine(admin.StackedInline):
     model = City

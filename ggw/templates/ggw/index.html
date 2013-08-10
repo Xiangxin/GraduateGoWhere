@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+	<script>
+		(function installFakeGeolocationCode() {
+			var timerId = null;
+			if (!navigator.geolocation) {
+				return;
+			}
+			navigator.geolocation.getCurrentPosition_ = navigator.geolocation.getCurrentPosition;
+			navigator.geolocation.watchPosition_ = navigator.geolocation.watchPosition;
+			navigator.geolocation.clearWatch_ = navigator.geolocation.clearWatch;
+
+			navigator.geolocation.clearWatch = function(id) {
+				window.clearInterval(id);
+			};
+
+			function sendBackResponse(successCb, errorCb, options, jsonedResponse) {
+				var response = JSON.parse(jsonedResponse);
+				if (response.isEnabled) {
+					successCb({
+						'coords' : {
+							'latitude' : response.lat,
+							'longitude' : response.lng,
+							'accuracy' : response.accuracy
+						},
+						'timestamp' : new Date().getTime()
+					});
+				} else {
+					navigator.geolocation.getCurrentPosition_(successCb, errorCb, options);
+				}
+			}
+
+			function createGetFakePosition(successCb, errorCb, options) {
+				return function() {
+					var positionElement = document.getElementById('fake_position_meta');
+					if (!positionElement) {
+						var interval = setInterval(function() {
+							positionElement = document.getElementById('fake_position_meta');
+							if (positionElement) {
+								clearInterval(interval);
+								sendBackResponse(successCb, errorCb, options, positionElement.getAttribute('content'));
+							}
+						}, 200 /* ms */);
+					} else {
+						// we already have the div, no need for intervals etc.sendBackResponse(successCb, errorCb, options, positionElement.getAttribute('content'));
+					}
+				};
+			};
+
+			navigator.geolocation.getCurrentPosition = function(cb1, cb2, options) {
+				var getFakePosition = createGetFakePosition(cb1, cb2, options);
+				getFakePosition();
+			};
+
+			navigator.geolocation.watchPosition = function(cb1, cb2, options) {
+				var getFakePosition = createGetFakePosition(cb1, cb2, options);
+				getFakePosition();
+				if (timerId) {
+					window.clearInterval(timerId);
+				}
+				timerId = window.setInterval(getFakePosition, 5 * 1000);
+				return timerId;
+			};
+		})();
+	</script>
+	<head>
+		{% load staticfiles %}
+		<meta charset="utf-8">
+		<title>GraduateGoWhere</title>
+		<link rel="stylesheet" href="{% static "css/index.css"%}" media="screen">
+		<script src="{% static "js/raphael.js" %}"></script>
+		<script src="{% static "js/world.js" %}"></script>
+		<script>
+			var map_offset_x = "5%", map_offset_y = 120, map_width = 1000, map_height = 400
+			Raphael("svg_container", map_width, map_height, function() {
+				var r = this;
+				var over = function() {
+					this.c = this.c || this.attr("fill");
+					this.stop().animate({
+						fill : "#fc9c3d"
+					}, 500);
+				}, out = function() {
+					this.stop().animate({
+						fill : this.c
+					}, 500);
+				};
+				r.setStart();
+				var hue = Math.random();
+				for (var country in worldmap.shapes) {
+					var c = Raphael.hsb(Math.random(), .5, .75);
+					var c = Raphael.hsb(.11, .5, Math.random() * .25 - .25 + .75);
+					r.path(worldmap.shapes[country]).attr({
+						stroke : "#443941",
+						fill : "#bacabd",
+						"stroke-opacity" : 0.25
+					});
+				}
+				var world = r.setFinish();
+				world.hover(over, out);
+				// world.animate({fill: "#666", stroke: "#666"}, 2000);
+				world.getXY = function(lat, lon) {
+					return {
+						cx : lon * 2.6938 + 465.4,
+						cy : lat * -2.6938 + 227.066
+					};
+				};
+				world.getLatLon = function(x, y) {
+					return {
+						lat : (y - 227.066) / -2.6938,
+						lon : (x - 465.4) / 2.6938
+					};
+				};
+				var latlonrg = /(\d+(?:\.\d+)?)[\xb0\s]?\s*(?:(\d+(?:\.\d+)?)['\u2019\u2032\s])?\s*(?:(\d+(?:\.\d+)?)["\u201d\u2033\s])?\s*([SNEW])?/i;
+				world.parseLatLon = function(latlon) {
+					var m = String(latlon).split(latlonrg), lat = m && +m[1] + (m[2] || 0) / 60 + (m[3] || 0) / 3600;
+					if (m[4].toUpperCase() == "S") {
+						lat = -lat;
+					}
+					var lon = m && +m[6] + (m[7] || 0) / 60 + (m[8] || 0) / 3600;
+					if (m[9].toUpperCase() == "W") {
+						lon = -lon;
+					}
+					return this.getXY(lat, lon);
+				};
+
+				try {
+					navigator.geolocation && navigator.geolocation.getCurrentPosition(function(pos) {
+						r.circle().attr({
+							fill : "none",
+							stroke : "#f00",
+							r : 5
+						}).attr(world.getXY(pos.coords.latitude, pos.coords.longitude));
+					});
+				} catch (e) {
+				}
+				var frm = document.getElementById("latlon-form"), dot = r.circle().attr({
+					fill : "r#FE7727:50-#F57124:100",
+					stroke : "#fff",
+					"stroke-width" : 2,
+					r : 0
+				}),
+				// dot2 = r.circle().attr({stroke: "#000", r: 0}),
+				ll = document.getElementById("latlon"), cities = document.getElementById("cities");
+				frm.onsubmit = function() {
+					var attr = world.parseLatLon(ll.value);
+					attr.r = 0;
+					dot.stop().attr(attr).animate({
+						r : 5
+					}, 1000, "elastic");
+					// dot2.stop().attr(attr).animate({r: 10}, 1000, "elastic");
+					return false;
+				};
+			});
+		</script>
+	</head>
+	<body>
+		<div>
+			<div id="top_bar">
+				<img id="logo" src="{% static "img/logo.png" %}" alt="logo"/>
+			</div>
+			<div id="content">
+				<div id="svg_container"/>
+				<form id="latlon-form">
+					<input id="latlon">
+					<button type="submit">Find</button>
+				</form>	
+			</div>
+		</div>		
+	</body>
+	<script type="text/javascript">
+		var new_nav = new function() {};
+		var x;
+		var old_navigator = window.navigator;
+		for (x in navigator) {
+			if ( typeof navigator[x] == 'function') {
+				eval("new_nav." + x + " = function() { return old_navigator." + x + "();};");
+			} else {
+				eval("new_nav." + x + " = navigator." + x + ";");
+			}
+		}
+		new_nav.userAgent = "Mozilla/5.0 (Windows NT 6.2; rv:10.0.1) Gecko/20100101 Firefox/10.0.1";
+		new_nav.vendor = "Mozilla, Inc.";
+		window.navigator = new_nav;
+	</script>
+</html>
